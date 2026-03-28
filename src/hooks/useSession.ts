@@ -1,0 +1,398 @@
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { supabase } from '@/lib/supabase';
+import { Session, Participant, Idea, Rating, FinalVote } from '@/lib/types';
+import { getUserId, genId, genCode } from '@/lib/utils';
+
+export function useSession() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [ratings, setRatings] = useState<Rating[]>([]);
+  const [finalVotes, setFinalVotes] = useState<FinalVote[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  const userId = typeof window !== 'undefined' ? getUserId() : '';
+  const isHost = session?.host_id === userId;
+
+  // Subscribe to realtime changes for a session
+  const subscribe = useCallback(
+    (sessionId: string) => {
+      // Clean up existing subscription
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+
+      const channel = supabase
+        .channel(`session:${sessionId}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}` },
+          (payload) => {
+            if (payload.eventType === 'UPDATE') {
+              setSession(payload.new as Session);
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'participants', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setParticipants((prev) => {
+              if (prev.some((p) => p.id === (payload.new as Participant).id)) return prev;
+              return [...prev, payload.new as Participant];
+            });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'ideas', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setIdeas((prev) => {
+              if (prev.some((i) => i.id === (payload.new as Idea).id)) return prev;
+              return [...prev, payload.new as Idea];
+            });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'ideas', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setIdeas((prev) =>
+              prev.map((i) => (i.id === (payload.new as Idea).id ? (payload.new as Idea) : i))
+            );
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'DELETE', schema: 'public', table: 'ideas', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setIdeas((prev) => prev.filter((i) => i.id !== payload.old.id));
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'ratings', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setRatings((prev) => {
+              if (prev.some((r) => r.id === (payload.new as Rating).id)) return prev;
+              return [...prev, payload.new as Rating];
+            });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'ratings', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setRatings((prev) =>
+              prev.map((r) => (r.id === (payload.new as Rating).id ? (payload.new as Rating) : r))
+            );
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'final_votes', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setFinalVotes((prev) => {
+              if (prev.some((v) => v.id === (payload.new as FinalVote).id)) return prev;
+              return [...prev, payload.new as FinalVote];
+            });
+          }
+        )
+        .subscribe();
+
+      channelRef.current = channel;
+    },
+    []
+  );
+
+  // Create a new session
+  const createSession = useCallback(
+    async (name: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const code = genCode();
+        const sessionId = genId();
+
+        const { data: sessionData, error: sessionError } = await supabase
+          .from('sessions')
+          .insert({
+            id: sessionId,
+            code,
+            host_id: userId,
+            prompt: '',
+            phase: 'waiting',
+          })
+          .select()
+          .single();
+
+        if (sessionError) throw sessionError;
+
+        const { error: participantError } = await supabase
+          .from('participants')
+          .insert({
+            session_id: sessionId,
+            user_id: userId,
+            name,
+          });
+
+        if (participantError) throw participantError;
+
+        setSession(sessionData);
+
+        // Fetch participants
+        const { data: parts } = await supabase
+          .from('participants')
+          .select('*')
+          .eq('session_id', sessionId);
+        setParticipants(parts || []);
+
+        subscribe(sessionId);
+        return sessionData as Session;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to create session');
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [userId, subscribe]
+  );
+
+  // Join an existing session
+  const joinSession = useCallback(
+    async (code: string, name: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data: sessionData, error: sessionError } = await supabase
+          .from('sessions')
+          .select('*')
+          .eq('code', code.toUpperCase())
+          .single();
+
+        if (sessionError || !sessionData) throw new Error('Session not found');
+
+        // Check if already joined
+        const { data: existing } = await supabase
+          .from('participants')
+          .select('*')
+          .eq('session_id', sessionData.id)
+          .eq('user_id', userId)
+          .single();
+
+        if (!existing) {
+          const { error: participantError } = await supabase
+            .from('participants')
+            .insert({
+              session_id: sessionData.id,
+              user_id: userId,
+              name,
+            });
+
+          if (participantError) throw participantError;
+        }
+
+        setSession(sessionData);
+
+        // Fetch all session data
+        const [partsRes, ideasRes, ratingsRes, votesRes] = await Promise.all([
+          supabase.from('participants').select('*').eq('session_id', sessionData.id),
+          supabase.from('ideas').select('*').eq('session_id', sessionData.id),
+          supabase.from('ratings').select('*').eq('session_id', sessionData.id),
+          supabase.from('final_votes').select('*').eq('session_id', sessionData.id),
+        ]);
+
+        setParticipants(partsRes.data || []);
+        setIdeas(ideasRes.data || []);
+        setRatings(ratingsRes.data || []);
+        setFinalVotes(votesRes.data || []);
+
+        subscribe(sessionData.id);
+        return sessionData as Session;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to join session');
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [userId, subscribe]
+  );
+
+  // Update session (host only)
+  const updateSession = useCallback(
+    async (updates: Partial<Session>) => {
+      if (!session) return;
+      const { error } = await supabase
+        .from('sessions')
+        .update(updates)
+        .eq('id', session.id);
+      if (error) setError(error.message);
+    },
+    [session]
+  );
+
+  // Submit an idea
+  const submitIdea = useCallback(
+    async (text: string, round: number) => {
+      if (!session) return;
+      const { error } = await supabase.from('ideas').insert({
+        session_id: session.id,
+        author_id: userId,
+        text,
+        round,
+      });
+      if (error) setError(error.message);
+    },
+    [session, userId]
+  );
+
+  // Delete an idea
+  const deleteIdea = useCallback(
+    async (ideaId: string) => {
+      const { error } = await supabase.from('ideas').delete().eq('id', ideaId);
+      if (error) setError(error.message);
+    },
+    []
+  );
+
+  // Toggle curate an idea
+  const toggleCurate = useCallback(
+    async (ideaId: string, curated: boolean) => {
+      const { error } = await supabase
+        .from('ideas')
+        .update({ is_curated: curated })
+        .eq('id', ideaId);
+      if (error) setError(error.message);
+    },
+    []
+  );
+
+  // Submit a rating
+  const submitRating = useCallback(
+    async (ideaId: string, score: number) => {
+      if (!session) return;
+      // Upsert rating
+      const { error } = await supabase
+        .from('ratings')
+        .upsert(
+          {
+            session_id: session.id,
+            idea_id: ideaId,
+            rater_id: userId,
+            score,
+          },
+          { onConflict: 'idea_id,rater_id' }
+        );
+      if (error) setError(error.message);
+    },
+    [session, userId]
+  );
+
+  // Cast final vote
+  const castVote = useCallback(
+    async (ideaId: string) => {
+      if (!session) return;
+      const { error } = await supabase
+        .from('final_votes')
+        .upsert(
+          {
+            session_id: session.id,
+            voter_id: userId,
+            idea_id: ideaId,
+          },
+          { onConflict: 'session_id,voter_id' }
+        );
+      if (error) setError(error.message);
+    },
+    [session, userId]
+  );
+
+  // Update leaderboard
+  const updateLeaderboard = useCallback(
+    async (
+      targetUserId: string,
+      targetName: string,
+      field: 'crowns' | 'fumbles' | 'torrents'
+    ) => {
+      // Check if entry exists
+      const { data: existing } = await supabase
+        .from('leaderboard')
+        .select('*')
+        .eq('user_id', targetUserId)
+        .single();
+
+      if (existing) {
+        const { error } = await supabase
+          .from('leaderboard')
+          .update({
+            [field]: existing[field] + 1,
+            name: targetName,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', targetUserId);
+        if (error) console.error('Leaderboard update error:', error);
+      } else {
+        const { error } = await supabase
+          .from('leaderboard')
+          .insert({
+            user_id: targetUserId,
+            name: targetName,
+            [field]: 1,
+          });
+        if (error) console.error('Leaderboard insert error:', error);
+      }
+    },
+    []
+  );
+
+  // Leave session
+  const leaveSession = useCallback(() => {
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+    setSession(null);
+    setParticipants([]);
+    setIdeas([]);
+    setRatings([]);
+    setFinalVotes([]);
+    setError(null);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+    };
+  }, []);
+
+  return {
+    session,
+    participants,
+    ideas,
+    ratings,
+    finalVotes,
+    loading,
+    error,
+    userId,
+    isHost,
+    createSession,
+    joinSession,
+    updateSession,
+    submitIdea,
+    deleteIdea,
+    toggleCurate,
+    submitRating,
+    castVote,
+    updateLeaderboard,
+    leaveSession,
+  };
+}
