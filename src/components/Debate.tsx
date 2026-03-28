@@ -77,14 +77,11 @@ export default function Debate({
                 </div>
                 <div className="flex-1 space-y-1">
                   <p className="font-body text-text-primary text-lg">{idea.text}</p>
-                  <div className="flex items-center gap-3">
-                    <Badge variant="teal">{idea.author_name}</Badge>
-                    <div className="flex items-center gap-1">
-                      <StarRating value={Math.round(idea.avg_rating)} readonly size="sm" />
-                      <span className="text-sm font-body text-text-secondary">
-                        {idea.avg_rating}
-                      </span>
-                    </div>
+                  <div className="flex items-center gap-1">
+                    <StarRating value={Math.round(idea.avg_rating)} readonly size="sm" />
+                    <span className="text-sm font-body text-text-secondary">
+                      {idea.avg_rating}
+                    </span>
                   </div>
                 </div>
                 {(isSelected || isVoted) && (

@@ -72,9 +72,9 @@ export default function Reveal({
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <h2 className="font-heading text-3xl text-gold text-center">The Results</h2>
+      <h2 className="font-heading text-3xl text-gold text-center">Top Ideas</h2>
 
-      {/* The Torrent */}
+      {/* The Torrent — name revealed */}
       <Card glow="teal">
         <div className="text-center space-y-1">
           <span className="text-3xl">⚡</span>
@@ -86,7 +86,7 @@ export default function Reveal({
         </div>
       </Card>
 
-      {/* Top 5 */}
+      {/* Top 5 — anonymous */}
       <div className="space-y-3">
         <h3 className="font-heading text-lg text-text-secondary text-center uppercase tracking-wider">
           Top {Math.min(5, top5.length)} Ideas
@@ -105,14 +105,11 @@ export default function Reveal({
               </div>
               <div className="flex-1 space-y-1">
                 <p className="font-body text-text-primary text-lg">{idea.text}</p>
-                <div className="flex items-center gap-3">
-                  <Badge variant={i === 0 ? 'gold' : 'teal'}>{idea.author_name}</Badge>
-                  <div className="flex items-center gap-1">
-                    <StarRating value={Math.round(idea.avg_rating)} readonly size="sm" />
-                    <span className="text-sm font-body text-text-secondary">
-                      {idea.avg_rating}
-                    </span>
-                  </div>
+                <div className="flex items-center gap-1">
+                  <StarRating value={Math.round(idea.avg_rating)} readonly size="sm" />
+                  <span className="text-sm font-body text-text-secondary">
+                    {idea.avg_rating}
+                  </span>
                 </div>
               </div>
             </div>
@@ -120,7 +117,7 @@ export default function Reveal({
         ))}
       </div>
 
-      {/* The Fumble */}
+      {/* The Fumble — name revealed */}
       {fumble && ranked.length > 1 && (
         <Card glow="danger">
           <div className="text-center space-y-1">
