@@ -82,8 +82,9 @@ export interface LeaderboardEntry {
   user_id: string;
   name: string;
   crowns: number;
-  fumbles: number;
-  torrents: number;
+  shortlists: number;
+  blitzes: number;
+  hail_marys: number;
   project_id: string | null;
   updated_at: string;
 }

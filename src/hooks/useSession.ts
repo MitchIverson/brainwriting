@@ -357,7 +357,7 @@ export function useSession(userId: string | undefined) {
     async (
       targetUserId: string,
       targetName: string,
-      field: 'crowns' | 'fumbles' | 'torrents'
+      field: 'crowns' | 'shortlists' | 'blitzes' | 'hail_marys'
     ) => {
       const projectId = session?.project_id || null;
 

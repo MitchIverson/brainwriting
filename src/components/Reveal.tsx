@@ -39,7 +39,29 @@ function computeRankedIdeas(
     .sort((a, b) => b.avg_rating - a.avg_rating);
 }
 
-function findTorrent(ideas: Idea[], participants: Participant[]) {
+/** Find the person who generated the most ideas in a given round */
+function findBlitzForRound(ideas: Idea[], participants: Participant[], round: number) {
+  const roundIdeas = ideas.filter((i) => i.round === round);
+  const counts: Record<string, number> = {};
+  roundIdeas.forEach((i) => {
+    counts[i.author_id] = (counts[i.author_id] || 0) + 1;
+  });
+
+  let maxId = '';
+  let maxCount = 0;
+  for (const [uid, count] of Object.entries(counts)) {
+    if (count > maxCount) {
+      maxCount = count;
+      maxId = uid;
+    }
+  }
+
+  const author = participants.find((p) => p.user_id === maxId);
+  return { name: author?.name || 'Unknown', count: maxCount, userId: maxId };
+}
+
+/** Find the overall most prolific person across all ideas (for display) */
+function findBlitz(ideas: Idea[], participants: Participant[]) {
   const counts: Record<string, number> = {};
   ideas.forEach((i) => {
     counts[i.author_id] = (counts[i.author_id] || 0) + 1;
@@ -67,29 +89,17 @@ export default function Reveal({
 }: RevealProps) {
   const ranked = computeRankedIdeas(ideas, ratings, participants);
   const top5 = ranked.slice(0, 5);
-  const fumble = ranked.length > 0 ? ranked[ranked.length - 1] : null;
-  const torrent = findTorrent(ideas, participants);
+  const hailMary = ranked.length > 0 ? ranked[ranked.length - 1] : null;
+  const blitz = findBlitz(ideas, participants);
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <h2 className="font-heading text-3xl text-gold text-center">Top Ideas</h2>
 
-      {/* The Torrent — name revealed */}
-      <Card glow="teal">
-        <div className="text-center space-y-1">
-          <span className="text-3xl">⚡</span>
-          <h3 className="font-heading text-xl text-teal">The Torrent</h3>
-          <p className="font-body text-text-primary text-lg">{torrent.name}</p>
-          <p className="font-body text-text-secondary text-sm">
-            {torrent.count} ideas generated — most prolific ideator
-          </p>
-        </div>
-      </Card>
-
-      {/* Top 5 — anonymous */}
+      {/* Top 5 Shortlist — anonymous, with ⭐ badge */}
       <div className="space-y-3">
         <h3 className="font-heading text-lg text-text-secondary text-center uppercase tracking-wider">
-          Top {Math.min(5, top5.length)} Ideas
+          ⭐ The Shortlist — Top {Math.min(5, top5.length)}
         </h3>
         {top5.map((idea, i) => (
           <Card key={idea.id} glow={i === 0 ? 'gold' : 'none'}>
@@ -105,11 +115,12 @@ export default function Reveal({
               </div>
               <div className="flex-1 space-y-1">
                 <p className="font-body text-text-primary text-lg">{idea.text}</p>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2">
                   <StarRating value={Math.round(idea.avg_rating)} readonly size="sm" />
                   <span className="text-sm font-body text-text-secondary">
                     {idea.avg_rating}
                   </span>
+                  <Badge variant="gold">⭐ +1 pt</Badge>
                 </div>
               </div>
             </div>
@@ -117,17 +128,29 @@ export default function Reveal({
         ))}
       </div>
 
-      {/* The Fumble — name revealed */}
-      {fumble && ranked.length > 1 && (
-        <Card glow="danger">
+      {/* The Blitz — name revealed */}
+      <Card glow="teal">
+        <div className="text-center space-y-1">
+          <span className="text-3xl">⚡</span>
+          <h3 className="font-heading text-xl text-teal">The Blitz</h3>
+          <p className="font-body text-text-primary text-lg">{blitz.name}</p>
+          <p className="font-body text-text-secondary text-sm">
+            {blitz.count} ideas generated — most prolific ideator
+          </p>
+        </div>
+      </Card>
+
+      {/* The Hail Mary — name revealed */}
+      {hailMary && ranked.length > 1 && (
+        <Card>
           <div className="text-center space-y-1">
-            <span className="text-3xl">💀</span>
-            <h3 className="font-heading text-xl text-danger">The Fumble</h3>
+            <span className="text-3xl">🎲</span>
+            <h3 className="font-heading text-xl text-text-primary">The Hail Mary</h3>
             <p className="font-body text-text-secondary text-xs uppercase tracking-wider">
-              Most Audacious
+              Boldest Swing
             </p>
-            <p className="font-body text-text-primary text-lg">&ldquo;{fumble.text}&rdquo;</p>
-            <Badge variant="danger">{fumble.author_name}</Badge>
+            <p className="font-body text-text-primary text-lg">&ldquo;{hailMary.text}&rdquo;</p>
+            <Badge variant="neutral">{hailMary.author_name}</Badge>
           </div>
         </Card>
       )}
@@ -145,4 +168,4 @@ export default function Reveal({
   );
 }
 
-export { computeRankedIdeas, findTorrent };
+export { computeRankedIdeas, findBlitz, findBlitzForRound };

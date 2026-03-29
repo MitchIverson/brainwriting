@@ -11,6 +11,10 @@ interface LeaderboardProps {
   onBack: () => void;
 }
 
+function computeScore(entry: LeaderboardEntry): number {
+  return entry.crowns * 3 + entry.shortlists + entry.blitzes + entry.hail_marys;
+}
+
 export default function Leaderboard({ onBack }: LeaderboardProps) {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,11 +27,8 @@ export default function Leaderboard({ onBack }: LeaderboardProps) {
         .order('updated_at', { ascending: false });
 
       if (data) {
-        // Sort by weighted score
         const sorted = data.sort((a: LeaderboardEntry, b: LeaderboardEntry) => {
-          const scoreA = a.crowns * 3 + a.fumbles + a.torrents;
-          const scoreB = b.crowns * 3 + b.fumbles + b.torrents;
-          return scoreB - scoreA;
+          return computeScore(b) - computeScore(a);
         });
         setEntries(sorted);
       }
@@ -43,7 +44,7 @@ export default function Leaderboard({ onBack }: LeaderboardProps) {
         <div className="text-center space-y-2">
           <h1 className="font-heading text-4xl text-gold">All-Time Leaderboard</h1>
           <p className="font-body text-text-secondary text-sm">
-            Ranked by: 👑×3 + 💀×1 + ⚡×1
+            Ranked by: 👑×3 + ⭐×1 + ⚡×1 + 🎲×1
           </p>
         </div>
 
@@ -60,7 +61,7 @@ export default function Leaderboard({ onBack }: LeaderboardProps) {
         ) : (
           <div className="space-y-2">
             {entries.map((entry, i) => {
-              const score = entry.crowns * 3 + entry.fumbles + entry.torrents;
+              const score = computeScore(entry);
               return (
                 <Card key={entry.id} glow={i === 0 ? 'gold' : 'none'}>
                   <div className="flex items-center gap-4">
@@ -79,15 +80,18 @@ export default function Leaderboard({ onBack }: LeaderboardProps) {
                     </div>
                     <div className="flex-1">
                       <p className="font-heading text-text-primary">{entry.name}</p>
-                      <div className="flex gap-2 mt-1">
+                      <div className="flex gap-2 mt-1 flex-wrap">
                         {entry.crowns > 0 && (
                           <Badge variant="gold">👑 {entry.crowns}</Badge>
                         )}
-                        {entry.fumbles > 0 && (
-                          <Badge variant="danger">💀 {entry.fumbles}</Badge>
+                        {entry.shortlists > 0 && (
+                          <Badge variant="gold">⭐ {entry.shortlists}</Badge>
                         )}
-                        {entry.torrents > 0 && (
-                          <Badge variant="teal">⚡ {entry.torrents}</Badge>
+                        {entry.blitzes > 0 && (
+                          <Badge variant="teal">⚡ {entry.blitzes}</Badge>
+                        )}
+                        {entry.hail_marys > 0 && (
+                          <Badge variant="neutral">🎲 {entry.hail_marys}</Badge>
                         )}
                       </div>
                     </div>

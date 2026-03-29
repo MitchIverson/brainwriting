@@ -99,17 +99,17 @@ export default function SharedResults() {
   }
   const winner = ranked.find((i) => i.id === winnerId) || ranked[0];
 
-  // Torrent
+  // Blitz (most ideas overall)
   const ideaCounts: Record<string, number> = {};
   ideas.forEach((i) => { ideaCounts[i.author_id] = (ideaCounts[i.author_id] || 0) + 1; });
-  let torrentId = '';
-  let torrentCount = 0;
+  let blitzId = '';
+  let blitzCount = 0;
   for (const [uid, count] of Object.entries(ideaCounts)) {
-    if (count > torrentCount) { torrentCount = count; torrentId = uid; }
+    if (count > blitzCount) { blitzCount = count; blitzId = uid; }
   }
-  const torrentName = participants.find((p) => p.user_id === torrentId)?.name || 'Unknown';
+  const blitzName = participants.find((p) => p.user_id === blitzId)?.name || 'Unknown';
 
-  const fumble = ranked.length > 1 ? ranked[ranked.length - 1] : null;
+  const hailMary = ranked.length > 1 ? ranked[ranked.length - 1] : null;
 
   return (
     <div className="min-h-screen bg-bg-primary p-4 md:p-8">
@@ -136,31 +136,31 @@ export default function SharedResults() {
 
         {/* Awards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {fumble && (
-            <Card glow="danger">
-              <div className="text-center space-y-1">
-                <span className="text-3xl">💀</span>
-                <h3 className="font-heading text-lg text-danger">The Fumble</h3>
-                <p className="text-xs font-body text-text-secondary">Most Audacious</p>
-                <p className="font-body text-text-primary text-sm">&ldquo;{fumble.text}&rdquo;</p>
-                <Badge variant="danger">{fumble.author_name}</Badge>
-              </div>
-            </Card>
-          )}
           <Card glow="teal">
             <div className="text-center space-y-1">
               <span className="text-3xl">⚡</span>
-              <h3 className="font-heading text-lg text-teal">The Torrent</h3>
-              <p className="font-body text-text-primary text-sm">{torrentName}</p>
-              <p className="text-xs font-body text-text-secondary">{torrentCount} ideas</p>
+              <h3 className="font-heading text-lg text-teal">The Blitz</h3>
+              <p className="font-body text-text-primary text-sm">{blitzName}</p>
+              <p className="text-xs font-body text-text-secondary">{blitzCount} ideas</p>
             </div>
           </Card>
+          {hailMary && (
+            <Card>
+              <div className="text-center space-y-1">
+                <span className="text-3xl">🎲</span>
+                <h3 className="font-heading text-lg text-text-primary">The Hail Mary</h3>
+                <p className="text-xs font-body text-text-secondary">Boldest Swing</p>
+                <p className="font-body text-text-primary text-sm">&ldquo;{hailMary.text}&rdquo;</p>
+                <Badge variant="neutral">{hailMary.author_name}</Badge>
+              </div>
+            </Card>
+          )}
         </div>
 
-        {/* Top 5 */}
+        {/* Top 5 Shortlist */}
         <div className="space-y-3">
           <h3 className="font-heading text-lg text-text-secondary text-center uppercase tracking-wider">
-            Top {Math.min(5, top5.length)} Ideas
+            ⭐ The Shortlist — Top {Math.min(5, top5.length)}
           </h3>
           {top5.map((idea, i) => (
             <Card key={idea.id} glow={i === 0 ? 'gold' : 'none'}>

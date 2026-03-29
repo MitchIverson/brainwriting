@@ -5,6 +5,7 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Timer from '@/components/Timer';
+import { useTimer } from '@/hooks/useTimer';
 import { Session, Idea } from '@/lib/types';
 
 interface GenerateProps {
@@ -33,6 +34,9 @@ export default function Generate({
   const [inputText, setInputText] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
+  const secondsLeft = useTimer(session.round_started_at, session.minutes_per_round);
+  const timeIsUp = secondsLeft <= 0;
+
   const currentRound = session.current_round;
   const totalRounds = session.total_rounds;
   const isLastRound = currentRound >= totalRounds;
@@ -43,6 +47,7 @@ export default function Generate({
   const totalRoomIdeas = allIdeas.length;
 
   const handleSubmit = () => {
+    if (timeIsUp) return;
     const text = inputText.trim();
     if (!text) return;
     onSubmitIdea(text, currentRound, selectedCategory || undefined);
@@ -105,22 +110,37 @@ export default function Generate({
       )}
 
       {/* Input */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSubmit();
-          }}
-          placeholder={selectedCategory ? `Idea for "${selectedCategory}"...` : 'Type your idea and hit Enter...'}
-          className="flex-1 bg-card-bg border border-card-border rounded-lg px-4 py-3 text-text-primary font-body placeholder:text-text-secondary/50 focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/30"
-          autoFocus
-        />
-        <Button onClick={handleSubmit} disabled={!inputText.trim()}>
-          Add
-        </Button>
-      </div>
+      {timeIsUp ? (
+        <Card>
+          <div className="text-center py-2">
+            <p className="font-heading text-lg text-danger">Pencils down!</p>
+            <p className="font-body text-text-secondary text-sm">
+              {isHost
+                ? isLastRound
+                  ? 'Hit the button below to move to curation.'
+                  : 'Hit the button below to start the next round.'
+                : 'Waiting for the host to advance...'}
+            </p>
+          </div>
+        </Card>
+      ) : (
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmit();
+            }}
+            placeholder={selectedCategory ? `Idea for "${selectedCategory}"...` : 'Type your idea and hit Enter...'}
+            className="flex-1 bg-card-bg border border-card-border rounded-lg px-4 py-3 text-text-primary font-body placeholder:text-text-secondary/50 focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/30"
+            autoFocus
+          />
+          <Button onClick={handleSubmit} disabled={!inputText.trim()}>
+            Add
+          </Button>
+        </div>
+      )}
 
       {/* Badges */}
       <div className="flex items-center justify-center gap-3 flex-wrap">

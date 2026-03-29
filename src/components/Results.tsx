@@ -5,7 +5,7 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { Session, Idea, Rating, Participant, FinalVote, LeaderboardEntry } from '@/lib/types';
-import { computeRankedIdeas, findTorrent } from '@/components/Reveal';
+import { computeRankedIdeas, findBlitz, findBlitzForRound } from '@/components/Reveal';
 import { supabase } from '@/lib/supabase';
 
 interface ResultsProps {
@@ -37,8 +37,38 @@ export default function Results({
   const [copied, setCopied] = useState(false);
 
   const ranked = computeRankedIdeas(ideas, ratings, participants);
-  const torrent = findTorrent(ideas, participants);
-  const fumble = ranked.length > 1 ? ranked[ranked.length - 1] : null;
+  const top5 = ranked.slice(0, 5);
+  const hailMary = ranked.length > 1 ? ranked[ranked.length - 1] : null;
+  const blitz = findBlitz(ideas, participants);
+
+  // Compute Blitz winners per round
+  const blitzPerRound = useMemo(() => {
+    const rounds = new Set(ideas.map((i) => i.round));
+    const winners: { userId: string; name: string; round: number; count: number }[] = [];
+    rounds.forEach((round) => {
+      const result = findBlitzForRound(ideas, participants, round);
+      if (result.userId) {
+        winners.push({ userId: result.userId, name: result.name, round, count: result.count });
+      }
+    });
+    return winners;
+  }, [ideas, participants]);
+
+  // Compute Shortlist: who has ideas in the top 5? One person can earn multiple points
+  const shortlistAwards = useMemo(() => {
+    const awards: { userId: string; name: string; count: number }[] = [];
+    const authorCounts: Record<string, { name: string; count: number }> = {};
+    top5.forEach((idea) => {
+      if (!authorCounts[idea.author_id]) {
+        authorCounts[idea.author_id] = { name: idea.author_name, count: 0 };
+      }
+      authorCounts[idea.author_id].count++;
+    });
+    for (const [userId, data] of Object.entries(authorCounts)) {
+      awards.push({ userId, name: data.name, count: data.count });
+    }
+    return awards.sort((a, b) => b.count - a.count);
+  }, [top5]);
 
   // Find winning idea (most votes)
   const winner = useMemo(() => {
@@ -76,21 +106,43 @@ export default function Results({
         .eq('id', session.id);
 
       const projectId = session.project_id || null;
-      const updates: { userId: string; name: string; field: 'crowns' | 'fumbles' | 'torrents' }[] = [];
 
+      // Collect all leaderboard increments per user
+      const increments: Record<string, { name: string; crowns: number; shortlists: number; blitzes: number; hail_marys: number }> = {};
+
+      const ensureUser = (userId: string, name: string) => {
+        if (!increments[userId]) {
+          increments[userId] = { name, crowns: 0, shortlists: 0, blitzes: 0, hail_marys: 0 };
+        }
+      };
+
+      // Crown: +1 to winner
       if (winner) {
-        updates.push({ userId: winner.author_id, name: winner.author_name, field: 'crowns' });
-      }
-      if (fumble && ranked.length > 1) {
-        updates.push({ userId: fumble.author_id, name: fumble.author_name, field: 'fumbles' });
-      }
-      if (torrent.userId) {
-        const tName = participants.find((p) => p.user_id === torrent.userId)?.name || 'Unknown';
-        updates.push({ userId: torrent.userId, name: tName, field: 'torrents' });
+        ensureUser(winner.author_id, winner.author_name);
+        increments[winner.author_id].crowns += 1;
       }
 
-      for (const u of updates) {
-        let query = supabase.from('leaderboard').select('*').eq('user_id', u.userId);
+      // Shortlist: +1 per top-5 idea
+      shortlistAwards.forEach((award) => {
+        ensureUser(award.userId, award.name);
+        increments[award.userId].shortlists += award.count;
+      });
+
+      // Blitz: +1 per round won
+      blitzPerRound.forEach((bpr) => {
+        ensureUser(bpr.userId, bpr.name);
+        increments[bpr.userId].blitzes += 1;
+      });
+
+      // Hail Mary: +1 to lowest-rated curated idea author
+      if (hailMary && ranked.length > 1) {
+        ensureUser(hailMary.author_id, hailMary.author_name);
+        increments[hailMary.author_id].hail_marys += 1;
+      }
+
+      // Apply increments to leaderboard
+      for (const [userId, inc] of Object.entries(increments)) {
+        let query = supabase.from('leaderboard').select('*').eq('user_id', userId);
         if (projectId) {
           query = query.eq('project_id', projectId);
         } else {
@@ -99,27 +151,34 @@ export default function Results({
         const { data: existing } = await query.single();
 
         if (existing) {
+          const entry = existing as LeaderboardEntry;
           await supabase
             .from('leaderboard')
             .update({
-              [u.field]: (existing as LeaderboardEntry)[u.field] + 1,
-              name: u.name,
+              crowns: entry.crowns + inc.crowns,
+              shortlists: entry.shortlists + inc.shortlists,
+              blitzes: entry.blitzes + inc.blitzes,
+              hail_marys: entry.hail_marys + inc.hail_marys,
+              name: inc.name,
               updated_at: new Date().toISOString(),
             })
-            .eq('id', existing.id);
+            .eq('id', entry.id);
         } else {
           await supabase.from('leaderboard').insert({
-            user_id: u.userId,
-            name: u.name,
+            user_id: userId,
+            name: inc.name,
             project_id: projectId,
-            [u.field]: 1,
+            crowns: inc.crowns,
+            shortlists: inc.shortlists,
+            blitzes: inc.blitzes,
+            hail_marys: inc.hail_marys,
           });
         }
       }
     }
 
     finalize();
-  }, [isHost, winner, fumble, torrent, ranked, participants, session, isStoryMode]);
+  }, [isHost, winner, hailMary, blitzPerRound, shortlistAwards, ranked, participants, session, isStoryMode]);
 
   const shareUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/session/${session.id}/results`
@@ -146,41 +205,69 @@ export default function Results({
             <Badge variant="gold" className="text-base px-4 py-1">{winner.author_name}</Badge>
             {winner.vote_count && (
               <p className="text-sm font-body text-text-secondary">
-                {winner.vote_count} vote{winner.vote_count !== 1 ? 's' : ''}
+                {winner.vote_count} vote{winner.vote_count !== 1 ? 's' : ''} · +3 pts
               </p>
             )}
           </div>
         </Card>
       )}
 
-      {/* Fumble & Torrent side by side */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {fumble && ranked.length > 1 && (
-          <Card glow="danger">
-            <div className="text-center space-y-1">
-              <span className="text-3xl">💀</span>
-              <h3 className="font-heading text-lg text-danger">The Fumble</h3>
-              <p className="text-xs font-body text-text-secondary uppercase tracking-wider">
-                Most Audacious
-              </p>
-              <p className="font-body text-text-primary text-sm">
-                &ldquo;{fumble.text}&rdquo;
-              </p>
-              <Badge variant="danger">{fumble.author_name}</Badge>
+      {/* Shortlist */}
+      {shortlistAwards.length > 0 && (
+        <Card>
+          <div className="space-y-3">
+            <div className="text-center">
+              <span className="text-2xl">⭐</span>
+              <h3 className="font-heading text-lg text-gold">The Shortlist</h3>
+              <p className="text-xs font-body text-text-secondary">+1 pt per Top 5 idea</p>
             </div>
-          </Card>
-        )}
+            <div className="flex flex-wrap justify-center gap-3">
+              {shortlistAwards.map((award) => (
+                <div key={award.userId} className="text-center">
+                  <Badge variant="gold">{award.name}</Badge>
+                  <p className="text-xs font-body text-text-secondary mt-1">
+                    ⭐ ×{award.count}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
 
+      {/* Blitz & Hail Mary side by side */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card glow="teal">
           <div className="text-center space-y-1">
             <span className="text-3xl">⚡</span>
-            <h3 className="font-heading text-lg text-teal">The Torrent</h3>
-            <p className="font-body text-text-primary text-sm">{torrent.name}</p>
+            <h3 className="font-heading text-lg text-teal">The Blitz</h3>
+            <p className="font-body text-text-primary text-sm">{blitz.name}</p>
             <p className="text-xs font-body text-text-secondary">
-              {torrent.count} ideas generated
+              {blitz.count} ideas generated
             </p>
+            {blitzPerRound.length > 1 && (
+              <p className="text-xs font-body text-text-secondary">
+                {blitzPerRound.length} round{blitzPerRound.length !== 1 ? 's' : ''} of Blitz awarded
+              </p>
+            )}
           </div>
         </Card>
+
+        {hailMary && ranked.length > 1 && (
+          <Card>
+            <div className="text-center space-y-1">
+              <span className="text-3xl">🎲</span>
+              <h3 className="font-heading text-lg text-text-primary">The Hail Mary</h3>
+              <p className="text-xs font-body text-text-secondary uppercase tracking-wider">
+                Boldest Swing
+              </p>
+              <p className="font-body text-text-primary text-sm">
+                &ldquo;{hailMary.text}&rdquo;
+              </p>
+              <Badge variant="neutral">{hailMary.author_name}</Badge>
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* Share Link */}

@@ -52,8 +52,8 @@ export default function ProjectView({
       .eq('project_id', project.id);
     if (lbData) {
       const sorted = lbData.sort((a: LeaderboardEntry, b: LeaderboardEntry) => {
-        const scoreA = a.crowns * 3 + a.fumbles + a.torrents;
-        const scoreB = b.crowns * 3 + b.fumbles + b.torrents;
+        const scoreA = a.crowns * 3 + a.shortlists + a.blitzes + a.hail_marys;
+        const scoreB = b.crowns * 3 + b.shortlists + b.blitzes + b.hail_marys;
         return scoreB - scoreA;
       });
       setLeaderboard(sorted);
@@ -251,7 +251,7 @@ export default function ProjectView({
             {tab === 'leaderboard' && (
               <div className="space-y-3">
                 <p className="text-sm font-body text-text-secondary">
-                  Ranked by: 👑×3 + 💀×1 + ⚡×1
+                  Ranked by: 👑×3 + ⭐×1 + ⚡×1 + 🎲×1
                 </p>
                 {leaderboard.length === 0 ? (
                   <Card>
@@ -261,7 +261,7 @@ export default function ProjectView({
                   </Card>
                 ) : (
                   leaderboard.map((entry, i) => {
-                    const score = entry.crowns * 3 + entry.fumbles + entry.torrents;
+                    const score = entry.crowns * 3 + entry.shortlists + entry.blitzes + entry.hail_marys;
                     return (
                       <Card key={entry.id} glow={i === 0 ? 'gold' : 'none'}>
                         <div className="flex items-center gap-4">
@@ -280,10 +280,11 @@ export default function ProjectView({
                           </div>
                           <div className="flex-1">
                             <p className="font-heading text-text-primary">{entry.name}</p>
-                            <div className="flex gap-2 mt-1">
+                            <div className="flex gap-2 mt-1 flex-wrap">
                               {entry.crowns > 0 && <Badge variant="gold">👑 {entry.crowns}</Badge>}
-                              {entry.fumbles > 0 && <Badge variant="danger">💀 {entry.fumbles}</Badge>}
-                              {entry.torrents > 0 && <Badge variant="teal">⚡ {entry.torrents}</Badge>}
+                              {entry.shortlists > 0 && <Badge variant="gold">⭐ {entry.shortlists}</Badge>}
+                              {entry.blitzes > 0 && <Badge variant="teal">⚡ {entry.blitzes}</Badge>}
+                              {entry.hail_marys > 0 && <Badge variant="neutral">🎲 {entry.hail_marys}</Badge>}
                             </div>
                           </div>
                           <div className="text-right">
