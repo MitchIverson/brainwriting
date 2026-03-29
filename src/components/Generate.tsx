@@ -10,10 +10,10 @@ import { Session, Idea } from '@/lib/types';
 interface GenerateProps {
   session: Session;
   ideas: Idea[];
-  allIdeas: Idea[]; // all ideas in session (for room activity count)
+  allIdeas: Idea[];
   userId: string;
   isHost: boolean;
-  onSubmitIdea: (text: string, round: number) => void;
+  onSubmitIdea: (text: string, round: number, category?: string) => void;
   onDeleteIdea: (ideaId: string) => void;
   onNextRound: () => void;
   onFinishGenerating: () => void;
@@ -31,10 +31,12 @@ export default function Generate({
   onFinishGenerating,
 }: GenerateProps) {
   const [inputText, setInputText] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const currentRound = session.current_round;
   const totalRounds = session.total_rounds;
   const isLastRound = currentRound >= totalRounds;
+  const categories = session.categories || [];
 
   const myIdeas = ideas.filter((i) => i.author_id === userId);
   const myRoundIdeas = myIdeas.filter((i) => i.round === currentRound);
@@ -43,7 +45,7 @@ export default function Generate({
   const handleSubmit = () => {
     const text = inputText.trim();
     if (!text) return;
-    onSubmitIdea(text, currentRound);
+    onSubmitIdea(text, currentRound, selectedCategory || undefined);
     setInputText('');
   };
 
@@ -53,6 +55,7 @@ export default function Generate({
       <Timer
         roundStartedAt={session.round_started_at}
         minutesPerRound={session.minutes_per_round}
+        soundEnabled={session.sound_enabled}
       />
 
       {/* Round Progress */}
@@ -82,6 +85,25 @@ export default function Generate({
         </p>
       </Card>
 
+      {/* Category Selector */}
+      {categories.length > 0 && (
+        <div className="flex flex-wrap gap-2 justify-center">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
+              className={`px-3 py-1 rounded-full text-sm font-body transition-all cursor-pointer ${
+                selectedCategory === cat
+                  ? 'bg-gold/20 text-gold border border-gold/50'
+                  : 'bg-card-bg text-text-secondary border border-card-border hover:border-gold/30'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Input */}
       <div className="flex gap-2">
         <input
@@ -91,7 +113,7 @@ export default function Generate({
           onKeyDown={(e) => {
             if (e.key === 'Enter') handleSubmit();
           }}
-          placeholder="Type your idea and hit Enter..."
+          placeholder={selectedCategory ? `Idea for "${selectedCategory}"...` : 'Type your idea and hit Enter...'}
           className="flex-1 bg-card-bg border border-card-border rounded-lg px-4 py-3 text-text-primary font-body placeholder:text-text-secondary/50 focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/30"
           autoFocus
         />
@@ -121,7 +143,12 @@ export default function Generate({
                 key={idea.id}
                 className="flex items-start gap-2 bg-card-bg border border-card-border rounded-lg px-4 py-2.5"
               >
-                <p className="flex-1 font-body text-text-primary text-sm">{idea.text}</p>
+                <p className="flex-1 font-body text-text-primary text-sm">
+                  {idea.text}
+                  {idea.category && (
+                    <span className="ml-2 text-xs text-gold/60">[{idea.category}]</span>
+                  )}
+                </p>
                 <button
                   onClick={() => onDeleteIdea(idea.id)}
                   className="text-text-secondary hover:text-danger text-xs mt-0.5 cursor-pointer"
@@ -140,7 +167,7 @@ export default function Generate({
         <div className="pt-2">
           {isLastRound ? (
             <Button size="lg" className="w-full" onClick={onFinishGenerating}>
-              Done — Select My Top 5 →
+              Done — Select My Top {session.max_curated} →
             </Button>
           ) : (
             <Button size="lg" className="w-full" onClick={onNextRound}>

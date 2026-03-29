@@ -15,7 +15,7 @@ interface PhaseIndicatorProps {
 }
 
 export default function PhaseIndicator({ currentPhase }: PhaseIndicatorProps) {
-  const normalizedPhase = currentPhase.startsWith('generate') ? 'generate' : currentPhase;
+  const normalizedPhase = currentPhase.startsWith('generate') ? 'generate' : currentPhase === 'spark' ? 'generate' : currentPhase;
   const currentIndex = PHASES.findIndex((p) => p.key === normalizedPhase);
 
   return (

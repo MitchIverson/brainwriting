@@ -10,7 +10,9 @@ interface WaitingRoomProps {
   session: Session;
   participants: Participant[];
   isHost: boolean;
+  userId: string;
   onUpdateSession: (updates: Partial<Session>) => void;
+  onKickParticipant: (participantId: string) => void;
   onLeave: () => void;
 }
 
@@ -25,13 +27,18 @@ export default function WaitingRoom({
   session,
   participants,
   isHost,
+  userId,
   onUpdateSession,
+  onKickParticipant,
   onLeave,
 }: WaitingRoomProps) {
-  const [selectedPreset, setSelectedPreset] = useState(1); // Standard default
+  const [selectedPreset, setSelectedPreset] = useState(1);
   const [customRounds, setCustomRounds] = useState(3);
   const [customMinutes, setCustomMinutes] = useState(5);
   const [prompt, setPrompt] = useState(session.prompt);
+  const [maxCurated, setMaxCurated] = useState(session.max_curated || 5);
+  const [soundEnabled, setSoundEnabled] = useState(session.sound_enabled !== false);
+  const [categoriesInput, setCategoriesInput] = useState((session.categories || []).join(', '));
 
   const isCustom = selectedPreset === 3;
   const rounds = isCustom ? customRounds : PRESETS[selectedPreset].rounds;
@@ -41,6 +48,11 @@ export default function WaitingRoom({
   const canStart = prompt.trim().length > 0 && participants.length >= 1;
 
   const handleStart = () => {
+    const categories = categoriesInput
+      .split(',')
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+
     onUpdateSession({
       prompt: prompt.trim(),
       total_rounds: rounds,
@@ -48,6 +60,9 @@ export default function WaitingRoom({
       current_round: 1,
       phase: 'generate:1',
       round_started_at: new Date().toISOString(),
+      max_curated: maxCurated,
+      sound_enabled: soundEnabled,
+      categories,
     });
   };
 
@@ -75,10 +90,21 @@ export default function WaitingRoom({
           </div>
           <div className="flex flex-wrap gap-2">
             {participants.map((p) => (
-              <Badge key={p.id} variant={p.user_id === session.host_id ? 'gold' : 'teal'}>
-                {p.name}
-                {p.user_id === session.host_id && ' (host)'}
-              </Badge>
+              <div key={p.id} className="flex items-center gap-1">
+                <Badge variant={p.user_id === session.host_id ? 'gold' : 'teal'}>
+                  {p.name}
+                  {p.user_id === session.host_id && ' (host)'}
+                </Badge>
+                {isHost && p.user_id !== userId && (
+                  <button
+                    onClick={() => onKickParticipant(p.id)}
+                    className="text-text-secondary hover:text-danger text-xs cursor-pointer"
+                    title={`Remove ${p.name}`}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </div>
@@ -155,6 +181,68 @@ export default function WaitingRoom({
                 rows={3}
                 className="w-full bg-bg-primary border border-card-border rounded-lg px-4 py-3 text-text-primary font-body placeholder:text-text-secondary/50 focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/30 resize-none"
               />
+            </div>
+          </Card>
+
+          {/* Advanced Settings */}
+          <Card>
+            <div className="space-y-4">
+              <h3 className="font-heading text-lg text-text-primary">Settings</h3>
+
+              {/* Categories */}
+              <div>
+                <label className="block text-xs font-body text-text-secondary mb-1">
+                  Idea Categories (optional, comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={categoriesInput}
+                  onChange={(e) => setCategoriesInput(e.target.value)}
+                  placeholder='e.g. Comedy, Drama, Wild Card'
+                  className="w-full bg-bg-primary border border-card-border rounded-lg px-4 py-2.5 text-text-primary font-body placeholder:text-text-secondary/50 focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/30"
+                />
+              </div>
+
+              {/* Max Curated */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-body text-text-primary">Ideas to curate</p>
+                  <p className="text-xs font-body text-text-secondary">How many favorites each person picks</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setMaxCurated(Math.max(1, maxCurated - 1))}
+                    className="w-8 h-8 rounded bg-card-bg border border-card-border text-text-primary flex items-center justify-center cursor-pointer hover:border-gold/50"
+                  >
+                    -
+                  </button>
+                  <span className="font-heading text-lg text-gold w-6 text-center">{maxCurated}</span>
+                  <button
+                    onClick={() => setMaxCurated(Math.min(10, maxCurated + 1))}
+                    className="w-8 h-8 rounded bg-card-bg border border-card-border text-text-primary flex items-center justify-center cursor-pointer hover:border-gold/50"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Sound Toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-body text-text-primary">Timer sounds</p>
+                  <p className="text-xs font-body text-text-secondary">Beep at 30s and time&apos;s up</p>
+                </div>
+                <button
+                  onClick={() => setSoundEnabled(!soundEnabled)}
+                  className={`w-12 h-6 rounded-full transition-all cursor-pointer ${
+                    soundEnabled ? 'bg-gold' : 'bg-card-border'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                    soundEnabled ? 'translate-x-6.5' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
             </div>
           </Card>
 

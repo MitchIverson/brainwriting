@@ -1,14 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
-import { Idea, Rating, Participant, FinalVote, LeaderboardEntry } from '@/lib/types';
+import { Session, Idea, Rating, Participant, FinalVote, LeaderboardEntry } from '@/lib/types';
 import { computeRankedIdeas, findTorrent } from '@/components/Reveal';
 import { supabase } from '@/lib/supabase';
 
 interface ResultsProps {
+  session: Session;
   ideas: Idea[];
   ratings: Rating[];
   participants: Participant[];
@@ -19,6 +20,7 @@ interface ResultsProps {
 }
 
 export default function Results({
+  session,
   ideas,
   ratings,
   participants,
@@ -28,6 +30,7 @@ export default function Results({
   onLeave,
 }: ResultsProps) {
   const leaderboardUpdated = useRef(false);
+  const [copied, setCopied] = useState(false);
 
   const ranked = computeRankedIdeas(ideas, ratings, participants);
   const torrent = findTorrent(ideas, participants);
@@ -53,12 +56,19 @@ export default function Results({
     return winIdea ? { ...winIdea, vote_count: winCount } : ranked[0] || null;
   }, [finalVotes, ranked]);
 
-  // Update leaderboard on mount (host only, once)
+  // Mark session as completed & update leaderboard (host only, once)
   useEffect(() => {
     if (!isHost || leaderboardUpdated.current) return;
     leaderboardUpdated.current = true;
 
-    async function updateLeaderboard() {
+    async function finalize() {
+      // Mark session completed
+      await supabase
+        .from('sessions')
+        .update({ completed_at: new Date().toISOString() })
+        .eq('id', session.id);
+
+      const projectId = session.project_id || null;
       const updates: { userId: string; name: string; field: 'crowns' | 'fumbles' | 'torrents' }[] = [];
 
       if (winner) {
@@ -73,11 +83,13 @@ export default function Results({
       }
 
       for (const u of updates) {
-        const { data: existing } = await supabase
-          .from('leaderboard')
-          .select('*')
-          .eq('user_id', u.userId)
-          .single();
+        let query = supabase.from('leaderboard').select('*').eq('user_id', u.userId);
+        if (projectId) {
+          query = query.eq('project_id', projectId);
+        } else {
+          query = query.is('project_id', null);
+        }
+        const { data: existing } = await query.single();
 
         if (existing) {
           await supabase
@@ -87,19 +99,31 @@ export default function Results({
               name: u.name,
               updated_at: new Date().toISOString(),
             })
-            .eq('user_id', u.userId);
+            .eq('id', existing.id);
         } else {
           await supabase.from('leaderboard').insert({
             user_id: u.userId,
             name: u.name,
+            project_id: projectId,
             [u.field]: 1,
           });
         }
       }
     }
 
-    updateLeaderboard();
-  }, [isHost, winner, fumble, torrent, ranked, participants]);
+    finalize();
+  }, [isHost, winner, fumble, torrent, ranked, participants, session]);
+
+  const shareUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/session/${session.id}/results`
+    : '';
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -151,6 +175,19 @@ export default function Results({
           </div>
         </Card>
       </div>
+
+      {/* Share Link */}
+      <Card>
+        <div className="flex items-center gap-3">
+          <div className="flex-1">
+            <p className="text-sm font-body text-text-secondary">Share these results</p>
+            <p className="text-xs font-body text-text-secondary/60 truncate">{shareUrl}</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={handleCopyLink}>
+            {copied ? 'Copied!' : 'Copy Link'}
+          </Button>
+        </div>
+      </Card>
 
       {/* Actions */}
       <div className="space-y-3 pt-4">

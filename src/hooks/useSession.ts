@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Session, Participant, Idea, Rating, FinalVote } from '@/lib/types';
-import { getUserId, genId, genCode } from '@/lib/utils';
+import { genCode } from '@/lib/utils';
 
-export function useSession() {
+export function useSession(userId: string | undefined) {
   const [session, setSession] = useState<Session | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -15,13 +15,11 @@ export function useSession() {
   const [error, setError] = useState<string | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const userId = typeof window !== 'undefined' ? getUserId() : '';
   const isHost = session?.host_id === userId;
 
   // Subscribe to realtime changes for a session
   const subscribe = useCallback(
     (sessionId: string) => {
-      // Clean up existing subscription
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
       }
@@ -45,6 +43,13 @@ export function useSession() {
               if (prev.some((p) => p.id === (payload.new as Participant).id)) return prev;
               return [...prev, payload.new as Participant];
             });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'DELETE', schema: 'public', table: 'participants', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setParticipants((prev) => prev.filter((p) => p.id !== payload.old.id));
           }
         )
         .on(
@@ -111,21 +116,21 @@ export function useSession() {
 
   // Create a new session
   const createSession = useCallback(
-    async (name: string) => {
+    async (displayName: string, projectId?: string) => {
+      if (!userId) return null;
       setLoading(true);
       setError(null);
       try {
         const code = genCode();
-        const sessionId = genId();
 
         const { data: sessionData, error: sessionError } = await supabase
           .from('sessions')
           .insert({
-            id: sessionId,
             code,
             host_id: userId,
             prompt: '',
             phase: 'waiting',
+            project_id: projectId || null,
           })
           .select()
           .single();
@@ -135,23 +140,22 @@ export function useSession() {
         const { error: participantError } = await supabase
           .from('participants')
           .insert({
-            session_id: sessionId,
+            session_id: sessionData.id,
             user_id: userId,
-            name,
+            name: displayName,
           });
 
         if (participantError) throw participantError;
 
         setSession(sessionData);
 
-        // Fetch participants
         const { data: parts } = await supabase
           .from('participants')
           .select('*')
-          .eq('session_id', sessionId);
+          .eq('session_id', sessionData.id);
         setParticipants(parts || []);
 
-        subscribe(sessionId);
+        subscribe(sessionData.id);
         return sessionData as Session;
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to create session');
@@ -165,7 +169,8 @@ export function useSession() {
 
   // Join an existing session
   const joinSession = useCallback(
-    async (code: string, name: string) => {
+    async (code: string, displayName: string) => {
+      if (!userId) return null;
       setLoading(true);
       setError(null);
       try {
@@ -191,7 +196,7 @@ export function useSession() {
             .insert({
               session_id: sessionData.id,
               user_id: userId,
-              name,
+              name: displayName,
             });
 
           if (participantError) throw participantError;
@@ -237,15 +242,16 @@ export function useSession() {
     [session]
   );
 
-  // Submit an idea
+  // Submit an idea (with optional category)
   const submitIdea = useCallback(
-    async (text: string, round: number) => {
-      if (!session) return;
+    async (text: string, round: number, category?: string) => {
+      if (!session || !userId) return;
       const { error } = await supabase.from('ideas').insert({
         session_id: session.id,
         author_id: userId,
         text,
         round,
+        category: category || null,
       });
       if (error) setError(error.message);
     },
@@ -276,8 +282,7 @@ export function useSession() {
   // Submit a rating
   const submitRating = useCallback(
     async (ideaId: string, score: number) => {
-      if (!session) return;
-      // Upsert rating
+      if (!session || !userId) return;
       const { error } = await supabase
         .from('ratings')
         .upsert(
@@ -297,7 +302,7 @@ export function useSession() {
   // Cast final vote
   const castVote = useCallback(
     async (ideaId: string) => {
-      if (!session) return;
+      if (!session || !userId) return;
       const { error } = await supabase
         .from('final_votes')
         .upsert(
@@ -313,42 +318,62 @@ export function useSession() {
     [session, userId]
   );
 
-  // Update leaderboard
+  // Kick a participant (host only)
+  const kickParticipant = useCallback(
+    async (participantId: string) => {
+      const { error } = await supabase
+        .from('participants')
+        .delete()
+        .eq('id', participantId);
+      if (error) setError(error.message);
+    },
+    []
+  );
+
+  // Update leaderboard (project-scoped or global)
   const updateLeaderboard = useCallback(
     async (
       targetUserId: string,
       targetName: string,
       field: 'crowns' | 'fumbles' | 'torrents'
     ) => {
+      const projectId = session?.project_id || null;
+
       // Check if entry exists
-      const { data: existing } = await supabase
+      let query = supabase
         .from('leaderboard')
         .select('*')
-        .eq('user_id', targetUserId)
-        .single();
+        .eq('user_id', targetUserId);
+
+      if (projectId) {
+        query = query.eq('project_id', projectId);
+      } else {
+        query = query.is('project_id', null);
+      }
+
+      const { data: existing } = await query.single();
 
       if (existing) {
         const { error } = await supabase
           .from('leaderboard')
           .update({
-            [field]: existing[field] + 1,
+            [field]: (existing as Record<string, number>)[field] + 1,
             name: targetName,
             updated_at: new Date().toISOString(),
           })
-          .eq('user_id', targetUserId);
+          .eq('id', existing.id);
         if (error) console.error('Leaderboard update error:', error);
       } else {
-        const { error } = await supabase
-          .from('leaderboard')
-          .insert({
-            user_id: targetUserId,
-            name: targetName,
-            [field]: 1,
-          });
+        const { error } = await supabase.from('leaderboard').insert({
+          user_id: targetUserId,
+          name: targetName,
+          project_id: projectId,
+          [field]: 1,
+        });
         if (error) console.error('Leaderboard insert error:', error);
       }
     },
-    []
+    [session?.project_id]
   );
 
   // Leave session
@@ -392,6 +417,7 @@ export function useSession() {
     toggleCurate,
     submitRating,
     castVote,
+    kickParticipant,
     updateLeaderboard,
     leaveSession,
   };

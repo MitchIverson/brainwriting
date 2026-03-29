@@ -1,3 +1,28 @@
+export interface Profile {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  owner_id: string;
+  invite_code: string;
+  created_at: string;
+}
+
+export interface ProjectMember {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: 'owner' | 'member';
+  joined_at: string;
+}
+
 export interface Session {
   id: string;
   code: string;
@@ -8,6 +33,11 @@ export interface Session {
   minutes_per_round: number;
   round_started_at: string | null;
   current_round: number;
+  project_id: string | null;
+  max_curated: number;
+  categories: string[];
+  sound_enabled: boolean;
+  completed_at: string | null;
   created_at: string;
 }
 
@@ -26,6 +56,7 @@ export interface Idea {
   text: string;
   round: number;
   is_curated: boolean;
+  category: string | null;
   created_at: string;
 }
 
@@ -51,12 +82,14 @@ export interface LeaderboardEntry {
   crowns: number;
   fumbles: number;
   torrents: number;
+  project_id: string | null;
   updated_at: string;
 }
 
 export type Phase =
   | 'waiting'
   | `generate:${number}`
+  | 'spark'
   | 'curate'
   | 'rate'
   | 'reveal'
