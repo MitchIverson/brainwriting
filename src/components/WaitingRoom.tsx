@@ -5,6 +5,7 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { Session, Participant } from '@/lib/types';
+import { GENRES, getStoryBeats } from '@/lib/storyPrompts';
 
 interface WaitingRoomProps {
   session: Session;
@@ -32,6 +33,8 @@ export default function WaitingRoom({
   onKickParticipant,
   onLeave,
 }: WaitingRoomProps) {
+  const [gameMode, setGameMode] = useState<'classic' | 'story'>('classic');
+  const [selectedGenre, setSelectedGenre] = useState('default');
   const [selectedPreset, setSelectedPreset] = useState(1);
   const [customRounds, setCustomRounds] = useState(3);
   const [customMinutes, setCustomMinutes] = useState(5);
@@ -45,25 +48,49 @@ export default function WaitingRoom({
   const minutes = isCustom ? customMinutes : PRESETS[selectedPreset].minutes;
   const totalTime = rounds * minutes;
 
-  const canStart = prompt.trim().length > 0 && participants.length >= 1;
+  const isStory = gameMode === 'story';
+  const storyBeats = isStory ? getStoryBeats(selectedGenre) : [];
+  const firstBeat = storyBeats[0];
+
+  const canStart = isStory
+    ? participants.length >= 1
+    : prompt.trim().length > 0 && participants.length >= 1;
 
   const handleStart = () => {
-    const categories = categoriesInput
-      .split(',')
-      .map((c) => c.trim())
-      .filter((c) => c.length > 0);
+    if (isStory) {
+      // Story mode: use first beat's prompt, always 3 rounds x 3 min per beat
+      onUpdateSession({
+        prompt: firstBeat?.prompt || '',
+        total_rounds: rounds,
+        minutes_per_round: minutes,
+        current_round: 1,
+        phase: 'generate:1',
+        round_started_at: new Date().toISOString(),
+        max_curated: maxCurated,
+        sound_enabled: soundEnabled,
+        categories: [],
+        game_mode: 'story',
+        genre: selectedGenre,
+      } as Partial<Session>);
+    } else {
+      const categories = categoriesInput
+        .split(',')
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0);
 
-    onUpdateSession({
-      prompt: prompt.trim(),
-      total_rounds: rounds,
-      minutes_per_round: minutes,
-      current_round: 1,
-      phase: 'generate:1',
-      round_started_at: new Date().toISOString(),
-      max_curated: maxCurated,
-      sound_enabled: soundEnabled,
-      categories,
-    });
+      onUpdateSession({
+        prompt: prompt.trim(),
+        total_rounds: rounds,
+        minutes_per_round: minutes,
+        current_round: 1,
+        phase: 'generate:1',
+        round_started_at: new Date().toISOString(),
+        max_curated: maxCurated,
+        sound_enabled: soundEnabled,
+        categories,
+        game_mode: 'classic',
+      } as Partial<Session>);
+    }
   };
 
   return (
@@ -112,6 +139,73 @@ export default function WaitingRoom({
 
       {isHost ? (
         <>
+          {/* Game Mode Selector */}
+          <Card>
+            <div className="space-y-4">
+              <h3 className="font-heading text-lg text-text-primary">Game Mode</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setGameMode('classic')}
+                  className={`p-4 rounded-lg border text-left transition-all cursor-pointer ${
+                    gameMode === 'classic'
+                      ? 'border-gold bg-gold/10 text-gold'
+                      : 'border-card-border text-text-secondary hover:border-gold/30'
+                  }`}
+                >
+                  <div className="text-2xl mb-1">💡</div>
+                  <div className="font-heading text-sm font-semibold">Classic</div>
+                  <div className="text-xs font-body opacity-70">Free-form ideation</div>
+                </button>
+                <button
+                  onClick={() => setGameMode('story')}
+                  className={`p-4 rounded-lg border text-left transition-all cursor-pointer ${
+                    gameMode === 'story'
+                      ? 'border-gold bg-gold/10 text-gold'
+                      : 'border-card-border text-text-secondary hover:border-gold/30'
+                  }`}
+                >
+                  <div className="text-2xl mb-1">🎬</div>
+                  <div className="font-heading text-sm font-semibold">Story Mode</div>
+                  <div className="text-xs font-body opacity-70">Build a movie pitch together</div>
+                </button>
+              </div>
+            </div>
+          </Card>
+
+          {/* Genre Picker (Story Mode only) */}
+          {isStory && (
+            <Card>
+              <div className="space-y-4">
+                <h3 className="font-heading text-lg text-text-primary">Genre</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {GENRES.map((genre) => (
+                    <button
+                      key={genre.id}
+                      onClick={() => setSelectedGenre(genre.id)}
+                      className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
+                        selectedGenre === genre.id
+                          ? 'border-gold bg-gold/10 text-gold'
+                          : 'border-card-border text-text-secondary hover:border-gold/30'
+                      }`}
+                    >
+                      <div className="text-lg mb-0.5">{genre.emoji}</div>
+                      <div className="font-heading text-xs font-semibold">{genre.name}</div>
+                      <div className="text-[10px] font-body opacity-70">{genre.description}</div>
+                    </button>
+                  ))}
+                </div>
+                {firstBeat && (
+                  <div className="bg-bg-primary rounded-lg p-3 border border-card-border">
+                    <p className="text-xs font-body text-text-secondary mb-1">First beat preview:</p>
+                    <p className="text-sm font-body text-gold italic">
+                      {firstBeat.emoji} {firstBeat.name}: &ldquo;{firstBeat.prompt}&rdquo;
+                    </p>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
           {/* Round Format */}
           <Card>
             <div className="space-y-4">
@@ -170,38 +264,42 @@ export default function WaitingRoom({
             </div>
           </Card>
 
-          {/* Prompt */}
-          <Card>
-            <div className="space-y-3">
-              <h3 className="font-heading text-lg text-text-primary">Creative Prompt</h3>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder='e.g. "Come up with a storyline for Fred in episode 3"'
-                rows={3}
-                className="w-full bg-bg-primary border border-card-border rounded-lg px-4 py-3 text-text-primary font-body placeholder:text-text-secondary/50 focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/30 resize-none"
-              />
-            </div>
-          </Card>
+          {/* Prompt (Classic only) */}
+          {!isStory && (
+            <Card>
+              <div className="space-y-3">
+                <h3 className="font-heading text-lg text-text-primary">Creative Prompt</h3>
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder='e.g. "Come up with a storyline for Fred in episode 3"'
+                  rows={3}
+                  className="w-full bg-bg-primary border border-card-border rounded-lg px-4 py-3 text-text-primary font-body placeholder:text-text-secondary/50 focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/30 resize-none"
+                />
+              </div>
+            </Card>
+          )}
 
           {/* Advanced Settings */}
           <Card>
             <div className="space-y-4">
               <h3 className="font-heading text-lg text-text-primary">Settings</h3>
 
-              {/* Categories */}
-              <div>
-                <label className="block text-xs font-body text-text-secondary mb-1">
-                  Idea Categories (optional, comma-separated)
-                </label>
-                <input
-                  type="text"
-                  value={categoriesInput}
-                  onChange={(e) => setCategoriesInput(e.target.value)}
-                  placeholder='e.g. Comedy, Drama, Wild Card'
-                  className="w-full bg-bg-primary border border-card-border rounded-lg px-4 py-2.5 text-text-primary font-body placeholder:text-text-secondary/50 focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/30"
-                />
-              </div>
+              {/* Categories (Classic only) */}
+              {!isStory && (
+                <div>
+                  <label className="block text-xs font-body text-text-secondary mb-1">
+                    Idea Categories (optional, comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={categoriesInput}
+                    onChange={(e) => setCategoriesInput(e.target.value)}
+                    placeholder='e.g. Comedy, Drama, Wild Card'
+                    className="w-full bg-bg-primary border border-card-border rounded-lg px-4 py-2.5 text-text-primary font-body placeholder:text-text-secondary/50 focus:outline-none focus:border-gold/50 focus:ring-1 focus:ring-gold/30"
+                  />
+                </div>
+              )}
 
               {/* Max Curated */}
               <div className="flex items-center justify-between">
@@ -253,7 +351,7 @@ export default function WaitingRoom({
             onClick={handleStart}
             disabled={!canStart}
           >
-            Start Round
+            {isStory ? 'Start Story Mode' : 'Start Round'}
           </Button>
         </>
       ) : (

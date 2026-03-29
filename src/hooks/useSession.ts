@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Session, Participant, Idea, Rating, FinalVote } from '@/lib/types';
+import { Session, Participant, Idea, Rating, FinalVote, StoryBeat } from '@/lib/types';
 import { genCode } from '@/lib/utils';
 
 export function useSession(userId: string | undefined) {
@@ -11,6 +11,7 @@ export function useSession(userId: string | undefined) {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [ratings, setRatings] = useState<Rating[]>([]);
   const [finalVotes, setFinalVotes] = useState<FinalVote[]>([]);
+  const [storyBeats, setStoryBeats] = useState<StoryBeat[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -105,6 +106,25 @@ export function useSession(userId: string | undefined) {
               if (prev.some((v) => v.id === (payload.new as FinalVote).id)) return prev;
               return [...prev, payload.new as FinalVote];
             });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'story_beats', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setStoryBeats((prev) => {
+              if (prev.some((b) => b.id === (payload.new as StoryBeat).id)) return prev;
+              return [...prev, payload.new as StoryBeat];
+            });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'story_beats', filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setStoryBeats((prev) =>
+              prev.map((b) => (b.id === (payload.new as StoryBeat).id ? (payload.new as StoryBeat) : b))
+            );
           }
         )
         .subscribe();
@@ -205,17 +225,19 @@ export function useSession(userId: string | undefined) {
         setSession(sessionData);
 
         // Fetch all session data
-        const [partsRes, ideasRes, ratingsRes, votesRes] = await Promise.all([
+        const [partsRes, ideasRes, ratingsRes, votesRes, beatsRes] = await Promise.all([
           supabase.from('participants').select('*').eq('session_id', sessionData.id),
           supabase.from('ideas').select('*').eq('session_id', sessionData.id),
           supabase.from('ratings').select('*').eq('session_id', sessionData.id),
           supabase.from('final_votes').select('*').eq('session_id', sessionData.id),
+          supabase.from('story_beats').select('*').eq('session_id', sessionData.id),
         ]);
 
         setParticipants(partsRes.data || []);
         setIdeas(ideasRes.data || []);
         setRatings(ratingsRes.data || []);
         setFinalVotes(votesRes.data || []);
+        setStoryBeats(beatsRes.data || []);
 
         subscribe(sessionData.id);
         return sessionData as Session;
@@ -376,6 +398,53 @@ export function useSession(userId: string | undefined) {
     [session?.project_id]
   );
 
+  // Save a story beat (winning idea for a macro-round)
+  const saveStoryBeat = useCallback(
+    async (roundNumber: number, beatName: string, promptText: string, winningIdeaId: string) => {
+      if (!session) return;
+
+      // Check if beat already exists
+      const existing = storyBeats.find(
+        (b) => b.session_id === session.id && b.round_number === roundNumber
+      );
+
+      if (existing) {
+        const { error } = await supabase
+          .from('story_beats')
+          .update({ winning_idea_id: winningIdeaId })
+          .eq('id', existing.id);
+        if (error) console.error('Update story beat error:', error);
+      } else {
+        const { error } = await supabase.from('story_beats').insert({
+          session_id: session.id,
+          round_number: roundNumber,
+          beat_name: beatName,
+          prompt_text: promptText,
+          winning_idea_id: winningIdeaId,
+        });
+        if (error) console.error('Insert story beat error:', error);
+      }
+    },
+    [session, storyBeats]
+  );
+
+  // Clear ideas/ratings/votes for next story beat round (keeps all data in DB, just resets curated flags)
+  const resetForNextBeat = useCallback(async () => {
+    if (!session) return;
+    // Un-curate all ideas so curation starts fresh
+    const curatedIds = ideas.filter((i) => i.is_curated).map((i) => i.id);
+    if (curatedIds.length > 0) {
+      await supabase
+        .from('ideas')
+        .update({ is_curated: false })
+        .in('id', curatedIds);
+    }
+    // Clear local ratings and votes for fresh round
+    // (DB still has them but they won't interfere since new ideas get new IDs)
+    setRatings([]);
+    setFinalVotes([]);
+  }, [session, ideas]);
+
   // Leave session
   const leaveSession = useCallback(() => {
     if (channelRef.current) {
@@ -387,6 +456,7 @@ export function useSession(userId: string | undefined) {
     setIdeas([]);
     setRatings([]);
     setFinalVotes([]);
+    setStoryBeats([]);
     setError(null);
   }, []);
 
@@ -405,6 +475,7 @@ export function useSession(userId: string | undefined) {
     ideas,
     ratings,
     finalVotes,
+    storyBeats,
     loading,
     error,
     userId,
@@ -419,6 +490,8 @@ export function useSession(userId: string | undefined) {
     castVote,
     kickParticipant,
     updateLeaderboard,
+    saveStoryBeat,
+    resetForNextBeat,
     leaveSession,
   };
 }

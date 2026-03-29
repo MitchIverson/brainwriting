@@ -17,6 +17,8 @@ interface ResultsProps {
   isHost: boolean;
   onNewRound: () => void;
   onLeave: () => void;
+  storyBeatLabel?: string;
+  storyNextLabel?: string;
 }
 
 export default function Results({
@@ -28,6 +30,8 @@ export default function Results({
   isHost,
   onNewRound,
   onLeave,
+  storyBeatLabel,
+  storyNextLabel,
 }: ResultsProps) {
   const leaderboardUpdated = useRef(false);
   const [copied, setCopied] = useState(false);
@@ -56,9 +60,12 @@ export default function Results({
     return winIdea ? { ...winIdea, vote_count: winCount } : ranked[0] || null;
   }, [finalVotes, ranked]);
 
+  const isStoryMode = session.game_mode === 'story';
+
   // Mark session as completed & update leaderboard (host only, once)
+  // Skip leaderboard in story mode — awards happen per-beat but we don't persist them
   useEffect(() => {
-    if (!isHost || leaderboardUpdated.current) return;
+    if (!isHost || leaderboardUpdated.current || isStoryMode) return;
     leaderboardUpdated.current = true;
 
     async function finalize() {
@@ -112,7 +119,7 @@ export default function Results({
     }
 
     finalize();
-  }, [isHost, winner, fumble, torrent, ranked, participants, session]);
+  }, [isHost, winner, fumble, torrent, ranked, participants, session, isStoryMode]);
 
   const shareUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/session/${session.id}/results`
@@ -189,12 +196,24 @@ export default function Results({
         </div>
       </Card>
 
+      {/* Story Beat Label */}
+      {storyBeatLabel && (
+        <div className="text-center">
+          <Badge variant="gold" className="text-sm px-3 py-1">{storyBeatLabel} — Complete!</Badge>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="space-y-3 pt-4">
         {isHost && (
           <Button size="lg" className="w-full" onClick={onNewRound}>
-            New Round (Same Prompt) →
+            {storyNextLabel || 'New Round (Same Prompt) →'}
           </Button>
+        )}
+        {!isHost && storyNextLabel && (
+          <p className="text-center text-sm font-body text-text-secondary">
+            Waiting for host to lock in this beat...
+          </p>
         )}
         <Button variant="secondary" size="lg" className="w-full" onClick={onLeave}>
           Leave Session

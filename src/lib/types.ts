@@ -38,6 +38,8 @@ export interface Session {
   categories: string[];
   sound_enabled: boolean;
   completed_at: string | null;
+  game_mode: 'classic' | 'story';
+  genre: string | null;
   created_at: string;
 }
 
@@ -86,6 +88,15 @@ export interface LeaderboardEntry {
   updated_at: string;
 }
 
+export interface StoryBeat {
+  id: string;
+  session_id: string;
+  round_number: number;
+  beat_name: string;
+  prompt_text: string;
+  winning_idea_id: string | null;
+}
+
 export type Phase =
   | 'waiting'
   | `generate:${number}`
@@ -94,7 +105,8 @@ export type Phase =
   | 'rate'
   | 'reveal'
   | 'debate'
-  | 'results';
+  | 'results'
+  | 'story:final';
 
 export interface RatedIdea extends Idea {
   avg_rating: number;
